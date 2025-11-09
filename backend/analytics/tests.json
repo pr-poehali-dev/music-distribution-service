@@ -1,0 +1,16 @@
+{
+  "tests": [
+    {
+      "name": "Get analytics data",
+      "method": "GET",
+      "path": "/?user_id=1",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "analytics": "array",
+        "financials": "array",
+        "summary": "object"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

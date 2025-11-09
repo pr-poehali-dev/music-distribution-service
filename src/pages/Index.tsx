@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Icon from '@/components/ui/icon';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import ReleaseForm from '@/components/ReleaseForm';
 
 type UserRole = 'artist' | 'label' | 'admin';
 
@@ -22,6 +23,44 @@ const Index = () => {
     role: 'artist',
     avatar: 'АВ'
   });
+  const [showReleaseForm, setShowReleaseForm] = useState(false);
+  const [releases, setReleases] = useState<any[]>([]);
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchReleases = async () => {
+    try {
+      const response = await fetch('https://functions.poehali.dev/ecf92456-8cb7-4e96-95df-8d2cb1169b51?user_id=1');
+      const data = await response.json();
+      setReleases(data.releases || []);
+    } catch (error) {
+      console.error('Error fetching releases:', error);
+    }
+  };
+
+  const fetchAnalytics = async () => {
+    try {
+      const response = await fetch('https://functions.poehali.dev/923d3404-15f4-4387-a81b-97a203f1dfb9?user_id=1');
+      const data = await response.json();
+      setAnalytics(data);
+    } catch (error) {
+      console.error('Error fetching analytics:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchReleases();
+    fetchAnalytics();
+  }, []);
+
+  const getStreamsByRelease = (releaseId: number) => {
+    if (!analytics?.analytics) return 0;
+    return analytics.analytics
+      .filter((a: any) => a.release_id === releaseId)
+      .reduce((sum: number, a: any) => sum + a.streams, 0);
+  };
 
   const roleLabels = {
     artist: 'Артист',
@@ -47,7 +86,7 @@ const Index = () => {
           <h1 className="text-3xl font-bold">Добро пожаловать, {user.name}!</h1>
           <p className="text-muted-foreground mt-1">Вот статистика ваших релизов за последние 7 дней</p>
         </div>
-        <Button className="bg-primary hover:bg-primary/90">
+        <Button className="bg-primary hover:bg-primary/90" onClick={() => setShowReleaseForm(true)}>
           <Icon name="Plus" className="mr-2 h-4 w-4" />
           Новый релиз
         </Button>
@@ -60,7 +99,7 @@ const Index = () => {
             <Icon name="Headphones" className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">56,170</div>
+            <div className="text-2xl font-bold">{loading ? '...' : (analytics?.summary?.total_streams || 0).toLocaleString()}</div>
             <p className="text-xs text-secondary flex items-center mt-1">
               <Icon name="TrendingUp" className="mr-1 h-3 w-3" />
               +12.5% за неделю
@@ -74,7 +113,7 @@ const Index = () => {
             <Icon name="DollarSign" className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">$1,580.20</div>
+            <div className="text-2xl font-bold">{loading ? '...' : `$${(analytics?.summary?.balance || 0).toFixed(2)}`}</div>
             <p className="text-xs text-secondary flex items-center mt-1">
               <Icon name="TrendingUp" className="mr-1 h-3 w-3" />
               +8.3% за неделю
@@ -88,8 +127,11 @@ const Index = () => {
             <Icon name="Disc3" className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">3</div>
-            <p className="text-xs text-muted-foreground mt-1">2 опубликовано, 1 на модерации</p>
+            <div className="text-2xl font-bold">{releases.length}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {releases.filter(r => r.status === 'published').length} опубликовано, 
+              {releases.filter(r => r.status === 'pending').length} на модерации
+            </p>
           </CardContent>
         </Card>
 
@@ -162,69 +204,103 @@ const Index = () => {
     </div>
   );
 
-  const renderReleases = () => (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Релизы</h1>
-          <p className="text-muted-foreground mt-1">Управляйте своими треками и альбомами</p>
+  const renderReleases = () => {
+    const getFilteredReleases = (status?: string) => {
+      if (!status || status === 'all') return releases;
+      return releases.filter(r => r.status === status);
+    };
+
+    const ReleaseList = ({ status }: { status?: string }) => {
+      const filtered = getFilteredReleases(status);
+      
+      if (filtered.length === 0) {
+        return (
+          <div className="text-center py-12">
+            <Icon name="Music" className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+            <p className="text-muted-foreground">Релизов пока нет</p>
+          </div>
+        );
+      }
+
+      return filtered.map((release, i) => {
+        const releaseDate = release.release_date ? new Date(release.release_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Не указано';
+        const typeLabel = release.release_type === 'single' ? 'Сингл' : release.release_type === 'album' ? 'Альбом' : 'EP';
+        const statusLabel = release.status === 'published' ? 'Опубликован' : release.status === 'pending' ? 'На модерации' : 'Черновик';
+        
+        return (
+          <Card key={release.id} className="hover-scale cursor-pointer">
+            <CardContent className="flex items-center gap-4 p-6">
+              <div className="w-16 h-16 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center">
+                <Icon name="Music" className="h-8 w-8 text-white" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-lg">{release.title}</h3>
+                  <Badge variant={release.status === 'published' ? 'default' : release.status === 'pending' ? 'secondary' : 'outline'}>
+                    {statusLabel}
+                  </Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">{release.artist_name} • {typeLabel} • {release.genre}</p>
+                <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <Icon name="Calendar" className="h-3 w-3" />
+                    {releaseDate}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Icon name="Disc3" className="h-3 w-3" />
+                    {release.track_count} треков
+                  </span>
+                </div>
+              </div>
+              <Button variant="ghost" size="icon">
+                <Icon name="MoreVertical" className="h-5 w-5" />
+              </Button>
+            </CardContent>
+          </Card>
+        );
+      });
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Релизы</h1>
+            <p className="text-muted-foreground mt-1">Управляйте своими треками и альбомами</p>
+          </div>
+          <Button className="bg-primary hover:bg-primary/90" onClick={() => setShowReleaseForm(true)}>
+            <Icon name="Plus" className="mr-2 h-4 w-4" />
+            Загрузить релиз
+          </Button>
         </div>
-        <Button className="bg-primary hover:bg-primary/90">
-          <Icon name="Plus" className="mr-2 h-4 w-4" />
-          Загрузить релиз
-        </Button>
+
+        <Tabs defaultValue="all">
+          <TabsList>
+            <TabsTrigger value="all">Все релизы ({releases.length})</TabsTrigger>
+            <TabsTrigger value="published">Опубликованные ({releases.filter(r => r.status === 'published').length})</TabsTrigger>
+            <TabsTrigger value="pending">На модерации ({releases.filter(r => r.status === 'pending').length})</TabsTrigger>
+            <TabsTrigger value="draft">Черновики ({releases.filter(r => r.status === 'draft').length})</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="all" className="space-y-4 mt-6">
+            <ReleaseList />
+          </TabsContent>
+          
+          <TabsContent value="published" className="space-y-4 mt-6">
+            <ReleaseList status="published" />
+          </TabsContent>
+          
+          <TabsContent value="pending" className="space-y-4 mt-6">
+            <ReleaseList status="pending" />
+          </TabsContent>
+          
+          <TabsContent value="draft" className="space-y-4 mt-6">
+            <ReleaseList status="draft" />
+          </TabsContent>
+        </Tabs>
       </div>
-
-      <Tabs defaultValue="all">
-        <TabsList>
-          <TabsTrigger value="all">Все релизы</TabsTrigger>
-          <TabsTrigger value="published">Опубликованные</TabsTrigger>
-          <TabsTrigger value="pending">На модерации</TabsTrigger>
-          <TabsTrigger value="draft">Черновики</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="all" className="space-y-4 mt-6">
-          {[
-            { title: 'Летний вечер', artist: 'Андрей Волков', type: 'single', status: 'published', date: '15 янв 2025', streams: 56170 },
-            { title: 'Ночной город', artist: 'Андрей Волков', type: 'single', status: 'published', date: '20 ноя 2024', streams: 14100 },
-            { title: 'Первый альбом', artist: 'Андрей Волков', type: 'album', status: 'pending', date: '1 фев 2025', streams: 0 }
-          ].map((release, i) => (
-            <Card key={i} className="hover-scale cursor-pointer">
-              <CardContent className="flex items-center gap-4 p-6">
-                <div className="w-16 h-16 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center">
-                  <Icon name="Music" className="h-8 w-8 text-white" />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-lg">{release.title}</h3>
-                    <Badge variant={release.status === 'published' ? 'default' : release.status === 'pending' ? 'secondary' : 'outline'}>
-                      {release.status === 'published' ? 'Опубликован' : release.status === 'pending' ? 'На модерации' : 'Черновик'}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{release.artist} • {release.type === 'single' ? 'Сингл' : release.type === 'album' ? 'Альбом' : 'EP'}</p>
-                  <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Icon name="Calendar" className="h-3 w-3" />
-                      {release.date}
-                    </span>
-                    {release.streams > 0 && (
-                      <span className="flex items-center gap-1">
-                        <Icon name="Headphones" className="h-3 w-3" />
-                        {release.streams.toLocaleString()} прослушиваний
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <Button variant="ghost" size="icon">
-                  <Icon name="MoreVertical" className="h-5 w-5" />
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
+    );
+  };
 
   const renderAnalytics = () => (
     <div className="space-y-6">
@@ -299,80 +375,93 @@ const Index = () => {
     </div>
   );
 
-  const renderFinance = () => (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Финансы</h1>
-        <p className="text-muted-foreground mt-1">Отслеживайте доходы и выплаты</p>
-      </div>
+  const renderFinance = () => {
+    const financials = analytics?.financials || [];
+    const pending = financials.filter((f: any) => f.status === 'pending');
+    const pendingAmount = pending.reduce((sum: number, f: any) => sum + f.amount, 0);
 
-      <div className="grid gap-4 md:grid-cols-3">
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold">Финансы</h1>
+          <p className="text-muted-foreground mt-1">Отслеживайте доходы и выплаты</p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Баланс</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-primary">${(analytics?.summary?.balance || 0).toFixed(2)}</div>
+              <Button size="sm" className="mt-3 w-full">Вывести средства</Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Выплачено</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">${(analytics?.summary?.total_paid || 0).toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground mt-1">За все время</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Ожидается</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-secondary">${pendingAmount.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground mt-1">В ожидании</p>
+            </CardContent>
+          </Card>
+        </div>
+
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Баланс</CardTitle>
+          <CardHeader>
+            <CardTitle>История транзакций</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-primary">$1,580.20</div>
-            <Button size="sm" className="mt-3 w-full">Вывести средства</Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Выплачено</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">$1,666.30</div>
-            <p className="text-xs text-muted-foreground mt-1">За все время</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">В обработке</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-secondary">$890.00</div>
-            <p className="text-xs text-muted-foreground mt-1">Поступит через 7 дней</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>История транзакций</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {[
-              { platform: 'Spotify', amount: 1580.20, period: '1-8 ноя 2025', status: 'processing' },
-              { platform: 'Spotify', amount: 1245.50, period: '1-31 окт 2025', status: 'paid' },
-              { platform: 'Apple Music', amount: 420.80, period: '1-31 окт 2025', status: 'paid' },
-              { platform: 'Yandex Music', amount: 340.20, period: '1-30 сен 2025', status: 'paid' }
-            ].map((transaction, i) => (
-              <div key={i} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
-                    <Icon name="DollarSign" className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <p className="font-medium">{transaction.platform}</p>
-                    <p className="text-sm text-muted-foreground">{transaction.period}</p>
-                  </div>
+            <div className="space-y-4">
+              {financials.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  Транзакций пока нет
                 </div>
-                <div className="text-right">
-                  <p className="font-semibold">${transaction.amount}</p>
-                  <Badge variant={transaction.status === 'paid' ? 'default' : 'secondary'} className="mt-1">
-                    {transaction.status === 'paid' ? 'Выплачено' : 'В обработке'}
-                  </Badge>
-                </div>
-              </div>
-            ))}
+              ) : (
+                financials.map((transaction: any, i: number) => {
+                  const startDate = new Date(transaction.period_start).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+                  const endDate = new Date(transaction.period_end).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
+                  const statusLabel = transaction.status === 'paid' ? 'Выплачено' : transaction.status === 'processing' ? 'В обработке' : 'Ожидается';
+                  
+                  return (
+                    <div key={transaction.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
+                          <Icon name="DollarSign" className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="font-medium">{transaction.platform}</p>
+                          <p className="text-sm text-muted-foreground">{startDate} - {endDate}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold">${transaction.amount.toFixed(2)}</p>
+                        <Badge variant={transaction.status === 'paid' ? 'default' : 'secondary'} className="mt-1">
+                          {statusLabel}
+                        </Badge>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
           </div>
         </CardContent>
       </Card>
     </div>
-  );
+    );
+  };
 
   const renderAdmin = () => (
     <div className="space-y-6">
@@ -528,6 +617,15 @@ const Index = () => {
           {renderContent()}
         </div>
       </main>
+
+      <ReleaseForm 
+        open={showReleaseForm} 
+        onOpenChange={setShowReleaseForm}
+        onSuccess={() => {
+          fetchReleases();
+          fetchAnalytics();
+        }}
+      />
     </div>
   );
 };

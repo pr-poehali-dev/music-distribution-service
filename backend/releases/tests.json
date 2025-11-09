@@ -1,0 +1,32 @@
+{
+  "tests": [
+    {
+      "name": "Get releases for user",
+      "method": "GET",
+      "path": "/?user_id=1",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "releases": "array"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Create new release",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "user_id": 1,
+        "title": "Test Release",
+        "artist_name": "Test Artist",
+        "release_type": "single",
+        "genre": "Pop"
+      },
+      "expectedStatus": 201,
+      "expectedBody": {
+        "id": "number",
+        "status": "created"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
